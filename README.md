@@ -58,7 +58,11 @@ The entire analysis is orchestrated as a sequential ADK Workflow graph with four
 
 A final Python formatter (`format_final_message`) converts the structured `ProductVerdict` into a readable console output for display.
 
-### Data Schema Design
+Here is the full pipeline running live in the ADK Dev UI — watch each stage light up in sequence from `extract_ingredients_agent` through to `format_final_message`:
+
+<media src="C:\Users\kumar\Videos\Captures\Agent Development Kit Dev UI - Brave 2026-07-07 10-03-47.mp4" />
+
+*The 4-stage pipeline executing live: ingredient extraction → safety analysis → danger ranking → verdict generation — end-to-end in seconds.*
 
 All stage-to-stage data transfer is governed by Pydantic schemas in `schemas.py`:
 
@@ -88,6 +92,12 @@ All tunables are centralized in `config.py`: the model name (`gemini-2.0-flash`)
 ## 5. User Experience
 
 A user interacts with Food Guard AI by submitting a food product name. The system processes it through all four stages and returns a verdict like:
+
+Below is the live ADK Dev UI running a real analysis — you can see the pipeline stages lighting up green as data flows through, and the event trace showing each stage's structured output:
+
+<media src="C:\Users\kumar\OneDrive\Pictures\unpaid mess fee receipts\2026 unpaid fee receipts\Screenshot 2026-07-07 100440.png" />
+
+*The ADK Dev UI showing the `food_analyzer` pipeline executing on "maggi noddles" — Stage 4 (`rank_ingredients`) has just completed, ranked ingredients by danger score, and the verdict is being assembled.*
 
 ```
 ═══ Food Analysis: Lay's Classic Chips ═══
@@ -389,6 +399,8 @@ Food Guard AI demonstrates that a complex, multi-stage reasoning pipeline can be
 The four-stage architecture — extract, analyze, rank, verdict — is deliberately simple. Anyone who reads `agent.py` can understand exactly what the system does and why. That transparency is itself a feature: regulators, researchers, and consumers can audit the logic without reverse-engineering a black-box model.
 
 In a world where food labels are designed to obscure rather than inform, Food Guard AI puts the power back in the hands of the consumer.
+
+> 🔍 **See it in action** — the screenshots and walkthrough above show the live ADK Dev UI tracing every stage of a real analysis on *Maggi 2-Minute Masala Noodles*, from raw ingredient extraction all the way to a `CAUTION` verdict with a ranked danger breakdown.
 
 ---
 
