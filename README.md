@@ -1,103 +1,57 @@
-# Food Guard AI: An Intelligent Agent for Food Ingredient Safety Analysis
+# Food Guard AI
 
-**Subtitle:** A Google ADK 2.0 Multi-Stage Pipeline Agent for Transparent, Real-Time Food Product Safety Evaluation
+> An intelligent multi-stage pipeline agent built with **Google ADK 2.0** that takes a food product name and returns a plain-English safety verdict — ingredient by ingredient, ranked by risk.
+
+![ADK](https://img.shields.io/badge/Google%20ADK-2.0-blue)
+![Python](https://img.shields.io/badge/Python-3.11+-green)
+![Gemini](https://img.shields.io/badge/LLM-Gemini%202.0%20Flash-yellow)
 
 ---
 
-## 1. Problem Statement
+## What It Does
 
-Modern food packaging is a maze of scientific names, E-numbers, and regulatory codes that most consumers cannot decipher. While nutrition labels disclose macronutrients, they rarely communicate the hidden dangers lurking in an ingredient list — preservatives linked to cancer, artificial colorings associated with hyperactivity in children, or emulsifiers that disrupt gut health. For people with allergies, dietary restrictions, or simply a desire to make informed choices, there is no easy, reliable tool that takes a product name and returns a plain-English verdict on how safe it really is.
+Enter any packaged food product name — `Lay's Classic Chips`, `Maggi 2-Minute Masala`, whatever's in your pantry — and Food Guard AI runs it through a 4-stage reasoning pipeline and returns:
 
-Existing solutions tend to be either too simplistic (flagging only well-known "banned" ingredients) or too technical (returning raw toxicology data that requires expert interpretation). Food Guard AI bridges this gap: it takes a food product name, runs a multi-stage AI reasoning pipeline, and delivers a clear, ranked, human-readable safety assessment — in seconds.
+- A **final verdict**: `SAFE` / `CAUTION` / `AVOID`
+- Each ingredient **ranked by danger score** (most risky first)
+- Plain-English explanations and **regulatory flags** (e.g. "⚠ banned in EU", "FDA GRAS")
+- An overall **confidence level** (high / medium / low)
 
-## 2. Solution Overview
+No toxicology degree required.
 
-Food Guard AI is a modular AI agent built on Google's Agent Development Kit (ADK) 2.0 that accepts a food product name as input and produces a structured safety verdict as output. The agent does not just look up a database — it uses a chain of LLM-powered reasoning stages to extract, analyze, rank, and synthesize ingredient data into an actionable recommendation.
+---
 
-The system produces three possible ratings: **SAFE** (average danger score below 1.5), **CAUTION** (1.5–2.5), or **AVOID** (2.5 or above). Every ingredient in the product is individually scored, explained, and ranked by danger level, with any relevant regulatory flags (e.g., banned in the EU, FDA GRAS status) surfaced transparently.
-
-The agent is designed to be both a standalone CLI tool and the backend of a consumer-facing web or mobile application — making food safety intelligence accessible to anyone who can type a product name.
-
-## 3. Technical Architecture
-
-### Framework & Stack
-
-Food Guard AI is built entirely in Python using Google's Agent Development Kit (ADK) 2.0. The ADK is chosen because it provides native support for **structured workflow graphs** — a paradigm where each stage of processing is an independent node that passes typed data to the next via well-defined schemas. This makes the pipeline easy to extend, debug, and reason about.
-
-The LLM backbone is **Gemini 2.0 Flash**, selected for its strong performance on structured JSON output tasks, low latency, and cost efficiency at high query volumes. All inter-stage data contracts are enforced by **Pydantic v2** schemas, ensuring that no malformed data can propagate through the pipeline.
-
-### Project Structure
+## How It Works — The 4-Stage Pipeline
 
 ```
-final food inspector/
-├── food_inspector/          ← Application root
-│   ├── .env                 ← Environment variables (API keys)
-│   ├── main.py              ← Entry point: validates env vars, loads agent
-│   ├── __init__.py          ← Loads .env on package import
-│   └── agent.py             ← ADK root agent wrapper
-│
-└── food_analyzer/           ← Core agent package
-    ├── __init__.py          ← Loads .env + monkey-patches ADK JSON parser
-    ├── agent.py             ← ADK Workflow graph definition (4 stages)
-    ├── config.py            ← Centralised config: model, thresholds, scores
-    ├── nodes.py             ← Stage 1, 2, 4 (LLM agents) + Stage 3 (Python)
-    └── schemas.py           ← Pydantic data models for all stage contracts
+START
+  │
+  ▼
+extract_ingredients_agent      ← LLM → full label ingredient list
+  │
+  ▼
+analyse_safety_agent            ← LLM → per-ingredient safety assessment
+  │
+  ▼
+rank_ingredients                ← Pure Python → danger-scored & sorted
+  │
+  ▼
+generate_verdict_agent          ← LLM → SAFE / CAUTION / AVOID verdict
+  │
+  ▼
+format_final_message            ← Python → human-readable output
+  │
+  ▼
+END
 ```
 
-### The 4-Stage Pipeline
+- **Stage 1 & 2 & 4** — LLM agents (Gemini 2.0 Flash)
+- **Stage 3** — deterministic Python, no LLM involved (consistent scoring every run)
+- All inter-stage contracts are **Pydantic v2 schemas** — no malformed data can silently propagate
 
-The entire analysis is orchestrated as a sequential ADK Workflow graph with four processing stages:
+---
 
-**Stage 1 — Ingredient Extraction (LLM Agent):** Given a product name, the first LLM agent returns a comprehensive ingredient list as it would appear on the full product label. This includes not just primary ingredients but also preservatives, emulsifiers, flavorings, colorings, and chemical sub-components (e.g., maltodextrin, sodium diacetate, E-numbers). The agent is explicitly instructed not to strip or summarize — no hidden ingredient obfuscation.
-
-**Stage 2 — Safety Analysis (LLM Agent):** Each extracted ingredient is evaluated by a second LLM agent acting as a food toxicology expert. For every ingredient, it returns a `safety_level` (safe / moderate / dangerous), a one-line `reason` (e.g., "linked to hyperactivity in children"), and any `regulatory_flags` (e.g., "banned in EU," "FDA GRAS"). This stage is where domain expertise is injected via structured prompting.
-
-**Stage 3 — Ranking (Pure Python):** A stateless Python function receives the safety analysis and computes a numeric `danger_score` for each ingredient (safe=1, moderate=2, dangerous=3). Ingredients are then sorted in descending order by danger score so the most concerning ones appear first. An average score across all ingredients is computed to feed the final verdict.
-
-**Stage 4 — Verdict Generation (LLM Agent):** A third LLM agent receives the ranked ingredient list and the average danger score, then produces a structured `ProductVerdict`: a rating (SAFE / CAUTION / AVOID), a 2–3 sentence plain-English verdict explanation that names the most concerning ingredients, and a confidence level (high / medium / low) reflecting how well-known the ingredients are. The rating thresholds (≥2.5 → AVOID, ≥1.5 → CAUTION) can be overridden if regulatory flags warrant it.
-
-A final Python formatter (`format_final_message`) converts the structured `ProductVerdict` into a readable console output for display.
-
-Here is the full pipeline running live in the ADK Dev UI — watch each stage light up in sequence from `extract_ingredients_agent` through to `format_final_message`:
-
-<media src="C:\Users\kumar\Videos\Captures\Agent Development Kit Dev UI - Brave 2026-07-07 10-03-47.mp4" />
-
-*The 4-stage pipeline executing live: ingredient extraction → safety analysis → danger ranking → verdict generation — end-to-end in seconds.*
-
-All stage-to-stage data transfer is governed by Pydantic schemas in `schemas.py`:
-
-| Schema | Flow | Purpose |
-|---|---|---|
-| `IngredientsResult` | 1 → 2 | Full ingredient list per product |
-| `SafetyAnalysisResult` | 2 → 3 | Per-ingredient safety assessments |
-| `RankedResult` | 3 → 4 | Ingredients sorted by danger score |
-| `ProductVerdict` | 4 → output | Final rating and explanation |
-
-This typed-contract approach eliminates an entire class of runtime errors and makes the pipeline self-documenting.
-
-### Configuration Management
-
-All tunables are centralized in `config.py`: the model name (`gemini-2.0-flash`), the danger score map, and the rating thresholds. Editing the model or adjusting sensitivity requires changing only this file.
-
-## 4. Key Features & Capabilities
-
-**No Hidden Ingredients:** The Stage 1 agent decomposes vague labels ("natural flavors," "spices") into their chemical sub-components — nothing passes through unexamined.
-
-**Ranked, Actionable Output:** Ingredients are sorted most-dangerous-first with inline regulatory flags (⚠ banned in EU), so consumers immediately know where the risks lie.
-
-**Transparent Reasoning:** Every classification includes a one-line explanation — the system doesn't just label something "dangerous," it tells you *why*.
-
-**Structured Data:** The output is a typed Pydantic `ProductVerdict`, making it easy to pipe into dashboards, mobile apps, or downstream AI pipelines without post-processing.
-
-## 5. User Experience
-
-A user interacts with Food Guard AI by submitting a food product name. The system processes it through all four stages and returns a verdict like:
-
-Below is the live ADK Dev UI running a real analysis — you can see the pipeline stages lighting up green as data flows through, and the event trace showing each stage's structured output:
-
-<media src="C:\Users\kumar\OneDrive\Pictures\unpaid mess fee receipts\2026 unpaid fee receipts\Screenshot 2026-07-07 100440.png" />
-
-*The ADK Dev UI showing the `food_analyzer` pipeline executing on "maggi noddles" — Stage 4 (`rank_ingredients`) has just completed, ranked ingredients by danger score, and the verdict is being assembled.*
+## Sample Output
 
 ```
 ═══ Food Analysis: Lay's Classic Chips ═══
@@ -121,287 +75,136 @@ neurological reactions in sensitive individuals.
 Average Danger Score: 2.60
 ```
 
-The experience is designed to be instantly readable — no toxicology degree required.
+---
 
-## 6. Code
+## Project Structure
 
-### `schemas.py` — Pydantic Data Models
-
-Every stage boundary is governed by a typed Pydantic schema, ensuring no malformed data can silently pass through the pipeline.
-
-```python
-from pydantic import BaseModel, Field
-
-# ── Stage 1: Ingredient Extraction ───────────────────────────────
-class Ingredient(BaseModel):
-    name: str
-    uncertain: bool = False  # True if the LLM is not confident
-
-class IngredientsResult(BaseModel):
-    product_name: str
-    ingredients: list[Ingredient]
-    confidence_note: str = ""
-
-# ── Stage 2: Safety Analysis ────────────────────────────────────
-class IngredientSafety(BaseModel):
-    name: str
-    safety_level: str          # "safe" | "moderate" | "dangerous"
-    reason: str                # 1-line explanation
-    regulatory_flags: str = "none"
-
-class SafetyAnalysisResult(BaseModel):
-    product_name: str
-    assessments: list[IngredientSafety]
-
-# ── Stage 3: Ranking ───────────────────────────────────────────
-class RankedIngredient(BaseModel):
-    name: str
-    safety_level: str
-    reason: str
-    regulatory_flags: str
-    danger_score: int          # safe=1, moderate=2, dangerous=3
-
-class RankedResult(BaseModel):
-    product_name: str
-    ranked_ingredients: list[RankedIngredient]
-    average_score: float
-
-# ── Stage 4: Final Verdict ─────────────────────────────────────
-class ProductVerdict(BaseModel):
-    product_name: str
-    rating: str                # "SAFE" | "CAUTION" | "AVOID"
-    verdict: str              # 2–3 sentence plain-English summary
-    confidence: str           # "high" | "medium" | "low"
-    ranked_ingredients: list[RankedIngredient]
 ```
-
-### `config.py` — Centralised Configuration
-
-```python
-# LLM Model
-MODEL_NAME: str = "gemini-2.0-flash"
-
-# Danger score mapping (LLM string → numeric score)
-DANGER_SCORES: dict[str, int] = {
-    "safe": 1,
-    "moderate": 2,
-    "dangerous": 3,
-}
-
-# Product rating thresholds (applied to average danger score)
-RATING_HIGH_THRESHOLD: float = 2.5   # → AVOID
-RATING_MED_THRESHOLD: float = 1.5   # → CAUTION
-# else → SAFE
+final food inspector/
+├── food_inspector/              ← Application root (entry point)
+│   ├── .env                     ← API keys (NOT committed)
+│   ├── .gitignore
+│   ├── main.py                  ← Validates env vars, boots the agent
+│   ├── agent.py                 ← Wraps the ADK workflow
+│   └── __init__.py
+│
+└── food_analyzer/               ← Core agent package
+    ├── .env
+    ├── .adk/                    ← ADK session / cache (gitignored)
+    ├── agent.py                 ← ADK Workflow graph (4 stages)
+    ├── config.py                ← Model name, thresholds, score map
+    ├── nodes.py                 ← Stage 1, 2, 4 (LLM) + Stage 3 (Python)
+    ├── schemas.py               ← Pydantic data models
+    ├── __init__.py              ← Loads .env + monkey-patches ADK JSON parser
+    └── food_guard_ai_writeup.md ← Full technical writeup
 ```
-
-### `nodes.py` — The Four Pipeline Stages
-
-```python
-from google.adk import Agent, Event
-from .config import DANGER_SCORES, MODEL_NAME
-from .schemas import IngredientsResult, SafetyAnalysisResult, RankedResult, ProductVerdict
-
-# ─────────────────────────────────────────────────────────────────
-# Stage 1 — Ingredient Extraction (LLM Agent)
-# ─────────────────────────────────────────────────────────────────
-extract_ingredients_agent = Agent(
-    name="extract_ingredients_agent",
-    model=MODEL_NAME,
-    description="Extracts the real-world ingredient list for a given food product.",
-    instruction="""\
-You are a food-science expert. Given a food product name, return its full
-ingredient list as it appears on the label — including all sub-ingredients,
-preservatives, emulsifiers, colorings, and chemicals (e.g., maltodextrin,
-monosodium glutamate, E-numbers). DO NOT strip or summarize.
-Return valid JSON matching IngredientsResult. DO NOT wrap in markdown fences.
-""",
-    output_schema=IngredientsResult,
-)
-
-# ─────────────────────────────────────────────────────────────────
-# Stage 2 — Safety Analysis (LLM Agent)
-# ─────────────────────────────────────────────────────────────────
-analyse_safety_agent = Agent(
-    name="analyse_safety_agent",
-    model=MODEL_NAME,
-    description="Evaluates the safety of each ingredient.",
-    instruction="""\
-You are a food-safety expert. For each ingredient, return:
-  1. safety_level  — "safe" | "moderate" | "dangerous"
-  2. reason        — brief 1-line explanation
-  3. regulatory_flags — "banned in EU", "FDA GRAS", or "none"
-Return valid JSON matching SafetyAnalysisResult. DO NOT wrap in markdown fences.
-""",
-    input_schema=IngredientsResult,
-    output_schema=SafetyAnalysisResult,
-)
-
-# ─────────────────────────────────────────────────────────────────
-# Stage 3 — Ranking (Pure Python — no LLM)
-# ─────────────────────────────────────────────────────────────────
-def rank_ingredients(node_input: SafetyAnalysisResult) -> RankedResult:
-    """Sort ingredients by danger score (descending). Pure Python."""
-    ranked = []
-    for item in node_input.assessments:
-        score = DANGER_SCORES.get(item.safety_level.lower().strip(), 1)
-        ranked.append(RankedIngredient(
-            name=item.name,
-            safety_level=item.safety_level,
-            reason=item.reason,
-            regulatory_flags=item.regulatory_flags,
-            danger_score=score,
-        ))
-    ranked.sort(key=lambda r: r.danger_score, reverse=True)
-    avg = sum(r.danger_score for r in ranked) / len(ranked) if ranked else 0.0
-    return RankedResult(
-        product_name=node_input.product_name,
-        ranked_ingredients=ranked,
-        average_score=round(avg, 2),
-    )
-
-# ─────────────────────────────────────────────────────────────────
-# Stage 4 — Final Verdict (LLM Agent)
-# ─────────────────────────────────────────────────────────────────
-generate_verdict_agent = Agent(
-    name="generate_verdict_agent",
-    model=MODEL_NAME,
-    description="Produces a final safety verdict for the food product.",
-    instruction="""\
-Produce a final ProductVerdict given the ranked ingredient analysis:
-  • rating: "SAFE" if avg < 1.5 | "CAUTION" if 1.5–2.5 | "AVOID" if ≥ 2.5
-  • verdict: 2–3 sentence plain-English summary naming key concerns
-  • confidence: "high" | "medium" | "low"
-Return valid JSON matching ProductVerdict. DO NOT wrap in markdown fences.
-""",
-    input_schema=RankedResult,
-    output_schema=ProductVerdict,
-)
-```
-
-### `agent.py` — ADK Workflow Graph
-
-```python
-from google.adk import Event, Workflow
-from .nodes import (
-    extract_ingredients_agent,    # Stage 1
-    analyse_safety_agent,        # Stage 2
-    rank_ingredients,            # Stage 3
-    generate_verdict_agent,      # Stage 4
-)
-from .schemas import ProductVerdict
-
-def format_final_message(node_input: ProductVerdict) -> Event:
-    """Convert the structured verdict into a readable user message."""
-    lines = [
-        f"═══ Food Analysis: {node_input.product_name} ═══",
-        f"Overall Rating : {node_input.rating}",
-        f"Confidence     : {node_input.confidence}",
-        "",
-        f"Verdict: {node_input.verdict}",
-        "",
-        "── Ingredient Breakdown (most concerning first) ──",
-    ]
-    for i, ing in enumerate(node_input.ranked_ingredients, 1):
-        flag = f" ⚠ {ing.regulatory_flags}" if ing.regulatory_flags != "none" else ""
-        lines.append(
-            f"  {i}. {ing.name} [{ing.safety_level.upper()}] "
-            f"(score {ing.danger_score}) — {ing.reason}{flag}"
-        )
-    lines.append(
-        f"Average Danger Score: "
-        f"{sum(i.danger_score for i in node_input.ranked_ingredients) / len(node_input.ranked_ingredients):.2f}"
-    )
-    return Event(message="\n".join(lines))
-
-# Wire the 4-stage sequential pipeline
-root_agent = Workflow(
-    name="root_agent",
-    edges=[
-        (
-            "START",
-            extract_ingredients_agent,
-            analyse_safety_agent,
-            rank_ingredients,
-            generate_verdict_agent,
-            format_final_message,
-        ),
-    ],
-)
-```
-
-### `__init__.py` — Environment & JSON Parser Monkey-Patch
-
-```python
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load .env before ADK initializes
-_project_root = Path(__file__).resolve().parent.parent
-_env_path = _project_root / "food_inspector" / ".env"
-load_dotenv(dotenv_path=_env_path)
-
-# Monkey-patch ADK to strip markdown fences from LLM JSON output
-import google.adk.utils._schema_utils as adk_schema_utils
-
-_original = adk_schema_utils.validate_schema
-
-def _patched_validate_schema(schema, json_text):
-    if isinstance(json_text, str):
-        json_text = json_text.strip()
-        if json_text.startswith("```json"):
-            json_text = json_text[7:]
-        elif json_text.startswith("```"):
-            json_text = json_text[3:]
-        if json_text.endswith("```"):
-            json_text = json_text[:-3]
-        json_text = json_text.strip()
-    return _original(schema, json_text)
-
-adk_schema_utils.validate_schema = _patched_validate_schema
-
-from . import agent  # noqa: E402
-```
-
-## 7. Challenges & Solutions
-
-**Challenge 1 — Ingredient Ambiguity:** Food labels use vague terms like "natural flavors" or "spices" that conceal multiple chemicals. A naive lookup misses these entirely.
-
-*Solution:* The Stage 1 agent decomposes compound categories into their specific chemical components, drawing on its training knowledge. Ingredients the agent is uncertain about are marked `uncertain: true` for transparent user awareness.
-
-**Challenge 2 — LLM JSON Robustness:** LLMs wrapping output in markdown fences (` ```json ... ``` `) silently breaks downstream JSON parsing.
-
-*Solution:* A targeted monkey-patch in `__init__.py` strips markdown fences before the ADK JSON validator runs — applied once at import, zero ADK internals modified.
-
-**Challenge 3 — Consistent Safety Classification:** LLM outputs can vary (one run says "moderate," another says "borderline"), making deterministic ranking unreliable.
-
-*Solution:* The danger score is computed in pure Python in Stage 3, not by the LLM. The LLM provides only a category label; a deterministic function maps it to a score (1/2/3), ensuring consistent ordering across runs.
-
-**Challenge 4 — API Key & Environment Setup:** `GOOGLE_API_KEY` and `GOOGLE_GENAI_USE_VERTEXAI=FALSE` must be set before ADK initializes — missing them causes cryptic errors.
-
-*Solution:* Both `__init__.py` files load `.env` at import time, before ADK boot. `main.py` asserts both variables are present, failing fast with a clear message instead of silent downstream crashes.
-
-## 8. Future Improvements
-
-If more time were available, the following enhancements would be prioritized:
-
-**Barcode Scanning:** A camera-based barcode scanner would let users scan products in-store rather than typing names, reducing input errors and expanding real-world usability.
-
-**Personalized Alerts:** Combining output with user health profiles (allergies, diabetes, pregnancy) to deliver personalized risk assessments instead of population-level verdicts.
-
-**Regulatory Database Integration:** Live APIs from the FDA, EFSA, or USDA to cross-validate LLM safety assessments against authoritative regulatory databases in real time.
-
-**Web UI / Mobile App:** Packaging the agent as a Streamlit app or React Native mobile app to make it accessible to non-technical consumers.
-
-## 9. Conclusion
-
-Food Guard AI demonstrates that a complex, multi-stage reasoning pipeline can be built cleanly and extensibly using Google's ADK 2.0 Workflow framework. By chaining LLM agents with deterministic Python logic and enforcing strict data contracts via Pydantic schemas, the system achieves transparency and reliability that pure prompt-chaining approaches struggle to match.
-
-The four-stage architecture — extract, analyze, rank, verdict — is deliberately simple. Anyone who reads `agent.py` can understand exactly what the system does and why. That transparency is itself a feature: regulators, researchers, and consumers can audit the logic without reverse-engineering a black-box model.
-
-In a world where food labels are designed to obscure rather than inform, Food Guard AI puts the power back in the hands of the consumer.
-
-> 🔍 **See it in action** — the screenshots and walkthrough above show the live ADK Dev UI tracing every stage of a real analysis on *Maggi 2-Minute Masala Noodles*, from raw ingredient extraction all the way to a `CAUTION` verdict with a ranked danger breakdown.
 
 ---
 
-*Food Guard AI is built with Google ADK 2.0 and Gemini 2.0 Flash. All code, documentation, and architecture are available for review and replication.*
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- A Google AI Studio API key (`GOOGLE_API_KEY`)
+
+### 1. Clone & install dependencies
+
+```bash
+git clone <repo-url>
+cd "final food inspector"
+
+# Create a virtual environment
+python -m venv venv
+venv\Scripts\activate      # Windows
+# source venv/bin/activate  # macOS / Linux
+
+# Install dependencies
+pip install google-adk pydantic python-dotenv
+```
+
+### 2. Configure your API key
+
+Create `food_inspector/.env` and `food_analyzer/.env` with your key:
+
+```env
+GOOGLE_API_KEY=your_key_here
+GOOGLE_GENAI_USE_VERTEXAI=FALSE
+```
+
+> **Note:** The `.env` files are gitignored. Never commit your API key.
+
+### 3. Run
+
+```bash
+cd food_inspector
+python main.py
+```
+
+On success you'll see:
+
+```
+✔ GOOGLE_GENAI_USE_VERTEXAI = FALSE
+✔ GOOGLE_API_KEY            = <first 10 chars>...
+✔ Agent 'root_agent' loaded successfully.
+```
+
+To query the agent, use the **ADK Dev UI** or connect the agent to a web/mobile frontend via the ADK serving layer.
+
+---
+
+## Architecture Highlights
+
+### Typed Stage Contracts
+
+Every pipeline stage boundary uses a Pydantic schema — this eliminates a whole class of runtime bugs and makes the data flow self-documenting:
+
+| Schema | Between Stages | Purpose |
+|--------|---------------|---------|
+| `IngredientsResult` | 1 → 2 | Full ingredient list |
+| `SafetyAnalysisResult` | 2 → 3 | Per-ingredient safety assessment |
+| `RankedResult` | 3 → 4 | Ingredients sorted by danger score |
+| `ProductVerdict` | 4 → output | Final rating and explanation |
+
+### LLM JSON Robustness
+
+LLMs sometimes wrap JSON output in markdown fences (` ```json ... ``` `), which breaks downstream parsing. A targeted monkey-patch in `food_analyzer/__init__.py` strips these fences before the ADK validator runs — zero ADK internals modified.
+
+### Consistent Danger Scoring
+
+The numeric danger score (1/2/3) is computed in pure Python in Stage 3, not by the LLM. The LLM only provides a category label; a deterministic function maps it — so rankings are consistent across every run.
+
+---
+
+## Running with the ADK Dev UI
+
+The ADK ships with a web-based Dev UI for interactive testing:
+
+```bash
+# From the project root
+adk web
+```
+
+Select the `food_analyzer` agent, type a product name, and watch each pipeline stage light up as data flows through. The event trace shows every stage's structured output — extract → analyse → rank → verdict.
+
+---
+
+## Future Improvements
+
+- 📷 **Barcode scanning** — point your camera at a product label instead of typing
+- 👤 **Personalized alerts** — combine with user health profiles (allergies, diabetes, pregnancy)
+- 📡 **Live regulatory APIs** — cross-validate assessments against FDA / EFSA / USDA databases in real time
+- 🌐 **Web UI / Mobile App** — package as a Streamlit app or React Native app for non-technical consumers
+
+---
+
+## Built With
+
+- [Google Agent Development Kit (ADK) 2.0](https://github.com/google/adk-python)
+- [Gemini 2.0 Flash](https://ai.google.dev/)
+- [Pydantic v2](https://docs.pydantic.dev/)
+- [python-dotenv](https://pypi.org/project/python-dotenv/)
+
+---
+
+*Food Guard AI — because food labels shouldn't require a chemistry degree to read.*
